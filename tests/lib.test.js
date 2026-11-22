@@ -126,3 +126,105 @@ test("paginateByHeight", () => {
   assert.deepEqual(L.paginateByHeight([], 100, 100), [[]]);
   assert.deepEqual(L.paginateByHeight([500], 100, 100), [[0]]);
 });
+
+/* ---------- review round (H1 recovery, M3 import caps, misc) ---------- */
+function u16(n) { return [n & 255, (n >> 8) & 255]; }
+function u32(n) { return [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]; }
+/** minimal stored-zip writer: entries [{name, data?:Uint8Array, declared?:number}] (declared overrides the uncompressed size in the directory) */
+function makeZip(entries) {
+  const parts = [], cd = [];
+  let off = 0;
+  for (const e of entries) {
+    const name = Buffer.from(e.name), data = e.data || Buffer.alloc(0);
+    const lh = Buffer.from([0x50, 0x4b, 3, 4, ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(data.length), ...u32(data.length), ...u16(name.length), ...u16(0)]);
+    parts.push(lh, name, data);
+    const usz = e.declared != null ? e.declared : data.length;
+    cd.push(Buffer.from([0x50, 0x4b, 1, 2, ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(data.length), ...u32(usz), ...u16(name.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), name);
+    off += lh.length + name.length + data.length;
+  }
+  const cdBuf = Buffer.concat(cd);
+  const eocd = Buffer.from([0x50, 0x4b, 5, 6, ...u16(0), ...u16(0), ...u16(entries.length), ...u16(entries.length), ...u32(cdBuf.length), ...u32(off), ...u16(0)]);
+  return new Uint8Array(Buffer.concat([...parts, cdBuf, eocd]));
+}
+
+test("recovery: contiguous prefix from seq 0, gaps dropped, order fixed", () => {
+  const recs = [
+    { seq: 2, size: 30, elapsed: 12 }, { seq: 0, size: 10, elapsed: 4 }, { seq: 1, size: 20, elapsed: 8 },
+    { seq: 4, size: 50, elapsed: 20 }, // hole at 3 -> unusable (stream broken)
+  ];
+  const p = L.planRecovery(recs);
+  assert.deepEqual(p.used.map((r) => r.seq), [0, 1, 2]);
+  assert.equal(p.bytes, 60); assert.equal(p.dropped, 1); assert.equal(p.elapsed, 12); assert.equal(p.empty, false);
+});
+test("recovery: missing first chunk or empty chunks -> empty, duplicates ignored", () => {
+  assert.equal(L.planRecovery([{ seq: 1, size: 9, elapsed: 4 }]).empty, true);
+  assert.equal(L.planRecovery([]).empty, true);
+  assert.equal(L.planRecovery([{ seq: 0, size: 0, elapsed: 1 }]).empty, true);
+  const p = L.planRecovery([{ seq: 0, size: 5, elapsed: 4 }, { seq: 0, size: 99, elapsed: 5 }]);
+  assert.equal(p.bytes, 5);
+});
+test("recovery: a recording held by a live tab is not offered", () => {
+  const m = { rid: "r1", updatedAt: 1000 };
+  assert.equal(L.isLiveRecording(m, ["crit-rec-r1"], 5e6), true);
+  assert.equal(L.isLiveRecording(m, [], 5e6), false); // lock gone -> tab died -> recoverable
+  assert.equal(L.isLiveRecording(m, null, 1000 + 5000), true); // no Web Locks: fresh heartbeat
+  assert.equal(L.isLiveRecording(m, null, 1000 + 60000), false);
+});
+test(".crit scan: normal file passes, entries listed", () => {
+  const z = makeZip([{ name: "session.json", data: Buffer.from("{}") }, { name: "pages/p1.jpg", data: Buffer.from("abc") }]);
+  const e = L.scanZipDirectory(z);
+  assert.deepEqual(e.map((x) => [x.name, x.originalSize]), [["session.json", 2], ["pages/p1.jpg", 3]]);
+});
+test(".crit scan: more than 500 entries is refused", () => {
+  const many = Array.from({ length: 501 }, (_, i) => ({ name: "pages/p" + (i + 1) + ".jpg", data: Buffer.from("x") }));
+  assert.throws(() => L.scanZipDirectory(makeZip(many)), /critmany/);
+  const ok = Array.from({ length: 500 }, (_, i) => ({ name: "pages/p" + (i + 1) + ".jpg", data: Buffer.from("x") }));
+  assert.equal(L.scanZipDirectory(makeZip(ok)).length, 500);
+});
+test(".crit scan: declared size over 1.5 GB total is refused (zip bomb)", () => {
+  const bomb = makeZip([{ name: "audio.webm", data: Buffer.from("x"), declared: 1.6e9 }]);
+  assert.throws(() => L.scanZipDirectory(bomb), /critbig/);
+  const split = makeZip([{ name: "a", data: Buffer.from("x"), declared: 0.8e9 }, { name: "b", data: Buffer.from("x"), declared: 0.8e9 }]);
+  assert.throws(() => L.scanZipDirectory(split), /critbig/);
+  const edge = makeZip([{ name: "a", data: Buffer.from("x"), declared: 1.5e9 }]);
+  assert.equal(L.scanZipDirectory(edge).length, 1);
+});
+test(".crit scan: garbage is a format error, only whitelisted names are readable", () => {
+  assert.throws(() => L.scanZipDirectory(new Uint8Array(100)), /format/);
+  assert.throws(() => L.scanZipDirectory(new Uint8Array(5)), /format/);
+  assert.equal(L.isCritEntryName("session.json"), true);
+  assert.equal(L.isCritEntryName("pages/p12.png"), true);
+  assert.equal(L.isCritEntryName("audio.m4a"), true);
+  assert.equal(L.isCritEntryName("__proto__"), false);
+  assert.equal(L.isCritEntryName("../pages/p1.jpg"), false);
+  assert.equal(L.isCritEntryName("pages/p1.exe"), false);
+});
+test("session meta: caps, duplicate ids, untimed", () => {
+  const pins = Array.from({ length: 2100 }, (_, i) => ({ id: 1, page: 0, x: 0, y: 0, t: i, note: "n".repeat(900) }));
+  const b = L.parseSessionMeta({ format: "atelier-crit", version: 1, pages: [{}], pins });
+  assert.equal(b.pins.length, 2000);
+  assert.equal(b.pins[0].note.length, 500);
+  assert.equal(new Set(b.pins.map((p) => p.id)).size, 2000); // duplicate ids re-issued
+  const u = L.parseSessionMeta({ format: "atelier-crit", version: 1, pages: [{}], pins: [{ id: 3, t: 0, untimed: true }, { id: 4, t: 5 }] });
+  assert.equal(u.pins[0].untimed, true); assert.equal(u.pins[1].untimed, false);
+});
+test("untimed pins: kept after re-record, hidden from bar/current, retimable", () => {
+  let p = L.addPin(L.addPin([], { page: 0, x: 0.1, y: 0.2, t: 30, note: "a" }), { page: 1, x: 0.5, y: 0.5, t: 60, note: "b" });
+  p = L.untimeAll(p);
+  assert.deepEqual(p.map((x) => [x.note, x.untimed, x.t]), [["a", true, 0], ["b", true, 0]]);
+  assert.deepEqual(L.barPositions(p, 100), []);
+  assert.equal(L.currentPin(p, 50), null);
+  assert.equal(L.noteRows(p)[0].time, "—");
+  p = L.setPinTime(p, p[1].id, 12);
+  assert.equal(L.barPositions(p, 100).length, 1); assert.equal(p.find((x) => x.note === "b").untimed, false);
+});
+test("removePage drops its pins and shifts later ones", () => {
+  let p = [];
+  for (const [pg, t] of [[0, 1], [1, 2], [2, 3], [1, 4]]) p = L.addPin(p, { page: pg, x: 0, y: 0, t });
+  const r = L.removePage(p, 1);
+  assert.deepEqual(r.map((x) => [x.t, x.page, x.n]), [[1, 0, 1], [3, 1, 2]]);
+});
+test("fitSize caps height too", () => {
+  assert.deepEqual(L.fitSize(2000, 8000, 2400, 3600), { w: 900, h: 3600 });
+  assert.deepEqual(L.fitSize(3000, 1000, 2400, 3600), { w: 2400, h: 800 });
+});

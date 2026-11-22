@@ -6,6 +6,9 @@
   "use strict";
 
   var PRE_ROLL = 3; // seconds before the pin when playing back
+  var MAX_PINS = 2000, MAX_NOTE = 500;
+  /** .crit open limits: total uncompressed bytes, number of zip entries */
+  var CRIT_LIMITS = { maxTotal: 1.5e9, maxEntries: 500 };
 
   function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
   function pad2(n) { return (n < 10 ? "0" : "") + n; }
@@ -64,6 +67,7 @@
       t: Math.max(0, +o.t || 0),
       note: o.note || "",
       star: !!o.star,
+      untimed: false,
     };
     return renumber(pins.concat([pin]));
   }
@@ -80,18 +84,29 @@
   function toggleStar(pins, id) {
     return pins.map(function (p) { return p.id === id ? Object.assign({}, p, { star: !p.star }) : p; });
   }
+  /** "re-record, keep notes": positions and notes stay, times are blanked (shown as an em dash) */
+  function untimeAll(pins) {
+    return renumber(pins.map(function (p) { return Object.assign({}, p, { t: 0, untimed: true }); }));
+  }
+  function setPinTime(pins, id, t) { return updatePin(pins, id, { t: t, untimed: false }); }
+  /** delete page index `page`: its pins go, later pages shift down by one */
+  function removePage(pins, page) {
+    return renumber(pins.filter(function (p) { return p.page !== page; }).map(function (p) {
+      return p.page > page ? Object.assign({}, p, { page: p.page - 1 }) : p;
+    }));
+  }
   function pinsOnPage(pins, page) { return pins.filter(function (p) { return p.page === page; }); }
   /** where to start playing for a pin */
   function pinSeek(t, preRoll) { return Math.max(0, t - (preRoll == null ? PRE_ROLL : preRoll)); }
   /** pin ticks along a bar: fraction 0..1 of duration (clamped) */
   function barPositions(pins, duration) {
     if (!(duration > 0)) return [];
-    return pins.map(function (p) { return { id: p.id, n: p.n, frac: clamp(p.t / duration, 0, 1), star: p.star }; });
+    return pins.filter(function (p) { return !p.untimed; }).map(function (p) { return { id: p.id, n: p.n, frac: clamp(p.t / duration, 0, 1), star: p.star }; });
   }
   /** which pin is "current" at time t (last pin whose t <= t), or null */
   function currentPin(pins, t) {
     var cur = null;
-    pins.forEach(function (p) { if (p.t <= t && (!cur || p.t >= cur.t)) cur = p; });
+    pins.forEach(function (p) { if (!p.untimed && p.t <= t && (!cur || p.t >= cur.t)) cur = p; });
     return cur;
   }
   /** a pin drawn at fractional position on a w x h image -> pixels */
@@ -101,7 +116,7 @@
   function noteRows(pins, onlyStar) {
     return pins
       .filter(function (p) { return !onlyStar || p.star; })
-      .map(function (p) { return { n: p.n, time: formatTime(p.t), note: p.note || "", star: !!p.star, page: p.page }; });
+      .map(function (p) { return { n: p.n, time: p.untimed ? "—" : formatTime(p.t), note: p.note || "", star: !!p.star, page: p.page }; });
   }
   /** split rows into sheets: first sheet holds firstCap rows, the rest restCap rows each. Always >= 1 sheet. */
   function paginateRows(rows, firstCap, restCap) {
@@ -167,16 +182,23 @@
     if (!m || m.format !== "atelier-crit" || m.version !== 1) throw new Error("format");
     var pages = Array.isArray(m.pages) ? m.pages : [];
     var pageCount = pages.length;
-    var pins = (Array.isArray(m.pins) ? m.pins : []).map(function (p, i) {
+    var seen = {}, maxId = 0;
+    var rawPins = (Array.isArray(m.pins) ? m.pins : []).slice(0, MAX_PINS).filter(function (p) { return p && typeof p === "object"; });
+    rawPins.forEach(function (p) { if (Number.isFinite(+p.id)) maxId = Math.max(maxId, +p.id); });
+    var pins = rawPins.map(function (p, i) {
+      var id = Number.isFinite(+p.id) ? +p.id : NaN;
+      if (!(id >= 0) || seen[id]) id = ++maxId; // missing or duplicate id -> fresh one
+      seen[id] = true;
       return {
-        id: Number.isFinite(+p.id) ? +p.id : i + 1,
+        id: id,
         n: 0,
         page: clamp(p.page | 0, 0, Math.max(0, pageCount - 1)),
         x: clamp(+p.x || 0, 0, 1),
         y: clamp(+p.y || 0, 0, 1),
         t: Math.max(0, +p.t || 0),
-        note: String(p.note || ""),
+        note: String(p.note || "").slice(0, MAX_NOTE),
         star: !!p.star,
+        untimed: !!p.untimed,
       };
     });
     return {
@@ -196,19 +218,77 @@
       createdAt: s.createdAt,
       presentMin: s.presentMin,
       pages: s.pages.map(function (pg, i) { return { file: pageFiles[i], w: pg.w, h: pg.h, name: pg.name || "" }; }),
-      pins: s.pins.map(function (p) { return { id: p.id, page: p.page, x: p.x, y: p.y, t: p.t, note: p.note, star: !!p.star }; }),
+      pins: s.pins.map(function (p) { return { id: p.id, page: p.page, x: p.x, y: p.y, t: p.t, note: p.note, star: !!p.star, untimed: !!p.untimed }; }),
       audio: s.audio ? { file: audioFile, mime: s.audio.mime, duration: s.audio.duration } : null,
     };
   }
 
   /** shrink to fit within maxW (keeps ratio, never upscales) */
-  function fitSize(w, h, maxW) {
+  function fitSize(w, h, maxW, maxH) {
     if (!w || !h) return { w: 0, h: 0 };
-    var k = Math.min(1, maxW / w);
+    var k = Math.min(1, maxW / w, maxH ? maxH / h : 1);
     return { w: Math.round(w * k), h: Math.round(h * k) };
   }
 
+  /* ---------- .crit zip safety (read the central directory BEFORE unzipping anything) ---------- */
+  /** only these names are ever read out of a .crit */
+  function isCritEntryName(name) {
+    return name === "session.json" || /^pages\/p\d{1,4}\.(jpg|png)$/.test(name) || /^audio\.(webm|m4a|ogg|wav|mp3)$/.test(name);
+  }
+  /** parse the zip central directory. Throws Error("format"|"critmany"|"critbig"). Returns [{name, size, originalSize}] */
+  function scanZipDirectory(u8, limits) {
+    limits = limits || CRIT_LIMITS;
+    var n = u8.length;
+    if (n < 22) throw new Error("format");
+    var dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), eocd = -1;
+    for (var i = n - 22; i >= Math.max(0, n - 22 - 65535); i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+    if (eocd < 0) throw new Error("format");
+    var count = dv.getUint16(eocd + 10, true), cdOff = dv.getUint32(eocd + 16, true);
+    if (count === 0xffff || cdOff === 0xffffffff) throw new Error("critbig"); // zip64: not produced by this app
+    if (count > limits.maxEntries) throw new Error("critmany");
+    var out = [], total = 0, p = cdOff;
+    for (var k = 0; k < count; k++) {
+      if (p + 46 > n || dv.getUint32(p, true) !== 0x02014b50) throw new Error("format");
+      var csz = dv.getUint32(p + 20, true), usz = dv.getUint32(p + 24, true), nl = dv.getUint16(p + 28, true), el = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true);
+      if (csz === 0xffffffff || usz === 0xffffffff) throw new Error("critbig");
+      if (p + 46 + nl > n) throw new Error("format");
+      var name = "";
+      for (var j = 0; j < nl; j++) name += String.fromCharCode(u8[p + 46 + j]);
+      total += usz;
+      if (total > limits.maxTotal) throw new Error("critbig");
+      out.push({ name: name, size: csz, originalSize: usz });
+      p += 46 + nl + el + cl;
+    }
+    return out;
+  }
+
+  /* ---------- crash recovery of an interrupted recording ---------- */
+  /**
+   * recs = [{seq, size, elapsed, ...}] chunk records stored while recording. A webm/mp4 stream is only playable from its
+   * first chunk onward without holes, so only the contiguous run starting at seq 0 is used.
+   * -> {used:[recs in order], dropped:n, bytes, elapsed (clock seconds at the last used chunk), empty}
+   */
+  function planRecovery(recs) {
+    var by = {};
+    (recs || []).forEach(function (r) { if (r && r.size > 0 && r.seq >= 0 && !(r.seq in by)) by[r.seq] = r; });
+    var used = [], bytes = 0, k = 0;
+    while (by[k]) { used.push(by[k]); bytes += by[k].size; k++; }
+    return {
+      used: used, dropped: (recs || []).length - used.length, bytes: bytes,
+      elapsed: used.length ? Math.max(0, +used[used.length - 1].elapsed || 0) : 0,
+      empty: bytes === 0,
+    };
+  }
+  /** skip recording leftovers that a live tab still owns: heldNames = web-lock names, or fall back to heartbeat age */
+  function isLiveRecording(meta, heldNames, now, staleMs) {
+    if (heldNames) return heldNames.indexOf("crit-rec-" + meta.rid) >= 0;
+    return now - (meta.updatedAt || 0) < (staleMs || 15000);
+  }
+
   return {
+    MAX_PINS: MAX_PINS, MAX_NOTE: MAX_NOTE, CRIT_LIMITS: CRIT_LIMITS,
+    isCritEntryName: isCritEntryName, scanZipDirectory: scanZipDirectory, planRecovery: planRecovery, isLiveRecording: isLiveRecording,
+    untimeAll: untimeAll, setPinTime: setPinTime, removePage: removePage,
     PRE_ROLL: PRE_ROLL, clamp: clamp, formatTime: formatTime,
     clockNew: clockNew, clockStart: clockStart, clockPause: clockPause, clockElapsed: clockElapsed,
     talkState: talkState,
