@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <title>Crit · Atelier 4·2</title>
+  <meta name="description" content="Atelier 4·2 Crit — 크리틱을 녹음하면서 도면 위치를 탭하면, 그 순간의 말이 핀에 묶입니다. 파일과 음성은 이 기기 밖으로 나가지 않습니다.">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="page-header">
+    <div class="nav-inner">
+      <a class="brand" href="https://atelier-4-2.github.io/" aria-label="Atelier 4·2" data-i18n-aria="brandAria">4·2</a>
+      <div class="nav-right">
+        <nav class="site-switch" aria-label="Atelier 4·2">
+          <a href="https://atelier-4-2.github.io/site/">Terrain</a>
+          <a href="https://atelier-4-2.github.io/board/">Board</a>
+          <a href="https://atelier-4-2.github.io/quiz/">Quiz</a>
+          <a href="./" class="current" aria-current="page">Crit</a>
+        </nav>
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" data-lang="fr" aria-pressed="false">FR</button><button type="button" data-lang="ko" aria-pressed="true">KO</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="app" id="app">
+    <div class="topbar">
+      <input id="title" class="title-input" type="text" maxlength="60" data-i18n-ph="titlePh" aria-label="Title">
+      <div class="top-actions">
+        <button type="button" class="btn ghost" id="btnSessions" data-i18n="sessions">세션</button>
+        <button type="button" class="btn ghost" id="btnNew" data-i18n="newSession">새로</button>
+        <button type="button" class="btn ghost" id="btnOpen" data-i18n="openCrit">열기</button>
+        <button type="button" class="btn ghost" id="btnSaveCrit" data-i18n="saveCrit">저장</button>
+        <button type="button" class="btn" id="btnExport" data-i18n="export">내보내기</button>
+      </div>
+    </div>
+
+    <div id="banner" class="banner" role="status" hidden></div>
+
+    <div class="layout">
+      <section class="stage" aria-label="Pages">
+        <div id="empty" class="empty">
+          <label class="drop" id="drop" tabindex="0">
+            <input id="fileInput" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple hidden>
+            <strong data-i18n="dropTitle">도면을 놓으세요</strong>
+            <span data-i18n="dropSub">PDF(여러 쪽) · JPG · PNG</span>
+            <em class="privacy" data-i18n="privacy">파일과 녹음은 이 기기 밖으로 나가지 않습니다.</em>
+          </label>
+        </div>
+
+        <div id="viewer" class="viewer" hidden>
+          <div class="page-nav">
+            <button type="button" class="btn ghost icon" id="prevPage" aria-label="Previous page">‹</button>
+            <span id="pageLabel" class="page-label">1 / 1</span>
+            <button type="button" class="btn ghost icon" id="nextPage" aria-label="Next page">›</button>
+            <label class="btn ghost" for="fileInput2" data-i18n="addPages">쪽 추가</label>
+            <input id="fileInput2" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple hidden>
+            <button type="button" class="btn ghost" id="btnPinMode" aria-pressed="false" hidden data-i18n="pinMode">핀 추가</button>
+          </div>
+          <div class="canvas-wrap" id="canvasWrap">
+            <div class="page-box" id="pageBox">
+              <img id="pageImg" alt="" draggable="false">
+              <div id="pinLayer" class="pin-layer"></div>
+            </div>
+          </div>
+          <div id="thumbs" class="thumbs" role="list"></div>
+        </div>
+      </section>
+
+      <div class="dockwrap">
+        <div class="dock" id="dock">
+          <!-- setup / recording -->
+          <div id="recPanel">
+            <div class="clock-row">
+              <div>
+                <div class="clock-label" data-i18n="elapsed">경과</div>
+                <div id="elapsed" class="clock" aria-live="off">0:00</div>
+              </div>
+              <div class="talk" id="talkBox">
+                <div class="clock-label" data-i18n="remaining">남은 발표</div>
+                <div id="talk" class="talk-time">-</div>
+              </div>
+            </div>
+            <div class="setup-row" id="setupRow">
+              <label for="presentMin" data-i18n="presentTime">발표 시간(분)</label>
+              <input id="presentMin" type="number" inputmode="numeric" min="0" max="180" value="10">
+            </div>
+            <div class="rec-buttons">
+              <button type="button" class="btn rec" id="btnRec" data-i18n="recStart">녹음 시작</button>
+              <button type="button" class="btn ghost big" id="btnPause" hidden data-i18n="pause">일시정지</button>
+              <button type="button" class="btn ghost big" id="btnStop" hidden data-i18n="recStop">끝내기</button>
+            </div>
+            <p class="hint" id="recHint" data-i18n="recHint">녹음 중에는 화면을 켜 두세요. 다른 앱이나 탭으로 가면 녹음이 끊길 수 있습니다. 도면을 탭하면 그 시각이 핀에 묶입니다.</p>
+          </div>
+          <!-- review -->
+          <div id="playPanel" hidden>
+            <div class="player">
+              <button type="button" class="btn rec round" id="btnPlay" aria-label="Play">▶</button>
+              <div class="bar-col">
+                <div class="bar" id="bar" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-i18n-aria="seekAria">
+                  <div class="bar-fill" id="barFill"></div>
+                  <div class="bar-ticks" id="barTicks"></div>
+                </div>
+                <div class="bar-time"><span id="curTime">0:00</span><span id="durTime">0:00</span></div>
+              </div>
+            </div>
+            <div class="rec-buttons">
+              <button type="button" class="btn ghost" id="btnRerecord" data-i18n="rerecord">다시 녹음</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <section class="pinsec" aria-label="Pins">
+        <div class="pins-head">
+          <h2 data-i18n="pinsTitle">핀 메모</h2>
+          <button type="button" class="btn ghost small" id="btnStarOnly" aria-pressed="false" data-i18n="starOnly">★만</button>
+        </div>
+        <ol id="pinList" class="pin-list"></ol>
+        <p id="pinEmpty" class="hint" data-i18n="pinEmpty">아직 핀이 없습니다. 녹음 중 도면을 탭하세요.</p>
+      </section>
+    </div>
+  </main>
+
+  <dialog id="dlgSessions">
+    <form method="dialog" class="dlg">
+      <h2 data-i18n="sessions">세션</h2>
+      <p id="storeOff" class="hint warn" hidden data-i18n="storeOff">저장이 꺼져 있습니다. 이 화면을 닫으면 세션이 사라지니 .crit 파일로 저장하세요.</p>
+      <ul id="sessionList" class="sess-list"></ul>
+      <p id="sessEmpty" class="hint" data-i18n="sessEmpty">저장된 세션이 없습니다.</p>
+      <div class="dlg-actions"><button class="btn" value="close" data-i18n="close">닫기</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgExport">
+    <form method="dialog" class="dlg">
+      <h2 data-i18n="export">내보내기</h2>
+      <div class="exp-grid">
+        <button type="button" class="btn" id="expPdf" data-i18n="expPdf">요약 PDF</button>
+        <button type="button" class="btn" id="expPng" data-i18n="expPng">요약 PNG</button>
+        <button type="button" class="btn" id="expCrit" data-i18n="expCrit">.crit 세션 파일</button>
+      </div>
+      <p id="expStatus" class="hint" role="status"></p>
+      <div class="dlg-actions"><button class="btn ghost" value="close" data-i18n="close">닫기</button></div>
+    </form>
+  </dialog>
+
+  <input id="openInput" type="file" accept=".crit,application/zip" hidden>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
+  <script src="lib.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
