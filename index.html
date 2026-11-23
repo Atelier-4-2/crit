@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#ffffff">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com blob: 'wasm-unsafe-eval'; worker-src blob: https://cdnjs.cloudflare.com; style-src 'self' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' blob: data:; media-src blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net blob: data:; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://accounts.google.com blob: 'wasm-unsafe-eval'; worker-src blob: https://cdnjs.cloudflare.com https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' blob: data:; media-src blob:; connect-src 'self' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.googleapis.com https://accounts.google.com https://atelier-crit-transcribe.ljae-archi.workers.dev https://huggingface.co https://*.hf.co blob: data:; frame-src https://accounts.google.com; object-src 'none'; base-uri 'none'">
   <title>Crit · Atelier 4·2</title>
-  <meta name="description" content="Atelier 4·2 Crit — 크리틱을 녹음하면서 도면 위치를 탭하면, 그 순간의 말이 핀에 묶입니다. 파일과 음성은 이 기기 밖으로 나가지 않습니다.">
+  <meta name="description" content="Atelier 4·2 Crit — 매주 도면·녹음·전사를 정리하고 지난주 피드백과 도면을 비교하는 주간 크리틱 노트입니다.">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -23,8 +23,10 @@
         <nav class="site-switch" aria-label="Atelier 4·2">
           <a href="https://atelier-4-2.github.io/site/">Terrain</a>
           <a href="https://atelier-4-2.github.io/board/">Board</a>
-          <a href="https://atelier-4-2.github.io/quiz/">Quiz</a>
+          <a href="https://atelier-4-2.github.io/view/">View</a>
           <a href="./" class="current" aria-current="page">Crit</a>
+          <a href="https://atelier-4-2.github.io/share/">Share</a>
+          <a href="https://atelier-4-2.github.io/quiz/">Quiz</a>
         </nav>
         <div class="lang" role="group" aria-label="Language" data-i18n-aria="langAria">
           <button type="button" data-lang="fr" aria-pressed="false">FR</button><button type="button" data-lang="ko" aria-pressed="true">KO</button>
@@ -36,10 +38,10 @@
   <main class="app" id="app">
     <h1 class="sr-only" data-i18n="h1">Crit</h1>
     <div class="topbar">
-      <input id="title" class="title-input" type="text" maxlength="60" data-i18n-ph="titlePh" aria-label="Title" data-i18n-aria="titlePh">
+      <input id="projName" class="proj-input" type="text" maxlength="60" data-i18n-ph="projPh" aria-label="Project" data-i18n-aria="projPh">
       <div class="top-actions">
-        <button type="button" class="btn ghost" id="btnSessions" data-i18n="sessions">세션</button>
-        <button type="button" class="btn ghost" id="btnNew" data-i18n="newSession">새로</button>
+        <button type="button" class="btn ghost" id="btnOverview" aria-pressed="false" data-i18n="overview">전체 흐름</button>
+        <button type="button" class="btn ghost" id="btnCloud" data-i18n="cloudBtn">Drive</button>
         <button type="button" class="btn ghost" id="btnOpen" data-i18n="openCrit">열기</button>
         <button type="button" class="btn ghost" id="btnSaveCrit" data-i18n="saveCrit">저장</button>
         <button type="button" class="btn" id="btnExport" data-i18n="export">내보내기</button>
@@ -53,107 +55,313 @@
       <button type="button" class="btn ghost small" id="alertClose" data-i18n="close" data-i18n-aria="alertClose">닫기</button>
     </div>
 
-    <div class="layout">
-      <section class="stage" aria-label="Pages">
-        <div id="empty" class="empty">
-          <label class="drop" id="drop" tabindex="0">
-            <input id="fileInput" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple hidden>
-            <strong data-i18n="dropTitle">도면을 놓으세요</strong>
-            <span data-i18n="dropSub">PDF(여러 쪽) · JPG · PNG</span>
-            <em class="privacy" data-i18n="privacy">파일과 녹음은 이 기기 밖으로 나가지 않습니다.</em>
-          </label>
+    <div class="shell" id="shell">
+      <aside class="weeks-rail" aria-label="Weeks" data-i18n-aria="weeksAria">
+        <div class="weeks-head">
+          <strong data-i18n="weeksTitle">주차</strong>
+          <button type="button" class="btn small" id="btnNewWeek" data-i18n="newWeek">+ 새 주차</button>
         </div>
+        <ul id="weekList" class="week-list"></ul>
+      </aside>
 
-        <div id="viewer" class="viewer" hidden>
-          <div class="page-nav">
-            <button type="button" class="btn ghost icon" id="prevPage" aria-label="Previous page" data-i18n-aria="prevAria">‹</button>
-            <span id="pageLabel" class="page-label">1 / 1</span>
-            <button type="button" class="btn ghost icon" id="nextPage" aria-label="Next page" data-i18n-aria="nextAria">›</button>
-            <button type="button" class="btn ghost icon" id="zoomOut" aria-label="Zoom out" data-i18n-aria="zoomOut">−</button>
-            <span id="zoomLabel" class="zoom-label" aria-live="polite">100%</span>
-            <button type="button" class="btn ghost icon" id="zoomIn" aria-label="Zoom in" data-i18n-aria="zoomIn">+</button>
-            <button type="button" class="btn ghost" id="btnAddPages" data-i18n="addPages">쪽 추가</button>
-            <button type="button" class="btn ghost" id="btnDelPage" data-i18n="delPage">쪽 삭제</button>
-            <input id="fileInput2" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple hidden>
-            <button type="button" class="btn ghost" id="btnPinMode" aria-pressed="false" hidden data-i18n="pinMode">핀 추가</button>
+      <!-- Overview (project-wide) -->
+      <section id="overviewView" class="overview" hidden aria-label="Project overview">
+        <div class="ov-search-row">
+          <input id="ovSearch" class="search-input" type="search" data-i18n-ph="searchPh" aria-label="Search" data-i18n-aria="searchPh">
+          <span id="ovSearchCount" class="hint m0"></span>
+        </div>
+        <div id="ovSearchRes" class="search-res" hidden></div>
+
+        <h2 class="ov-title" data-i18n="ovWeeks">주차별 기록</h2>
+        <div id="ovCards" class="ov-cards"></div>
+
+        <div class="ov-fb-head">
+          <h2 class="ov-title" data-i18n="ovFbTitle">누적 피드백</h2>
+          <div class="seg" role="group" id="ovFbFilter">
+            <button type="button" data-filter="all" aria-pressed="true" data-i18n="filterAll">전체</button>
+            <button type="button" data-filter="open" aria-pressed="false" data-i18n="filterOpen">남음</button>
+            <button type="button" data-filter="done" aria-pressed="false" data-i18n="filterDone">반영함</button>
           </div>
-          <div class="canvas-wrap" id="canvasWrap">
-            <div class="page-box" id="pageBox">
-              <img id="pageImg" alt="" draggable="false">
-              <div id="pinLayer" class="pin-layer"></div>
-            </div>
-          </div>
-          <div id="thumbs" class="thumbs" role="list"></div>
+        </div>
+        <div class="ov-table-wrap">
+          <table class="ov-table" id="ovFbTable">
+            <thead>
+              <tr>
+                <th data-i18n="colWeek">주차</th>
+                <th data-i18n="colContent">내용</th>
+                <th data-i18n="colStatus">상태</th>
+                <th data-i18n="colNote">메모</th>
+              </tr>
+            </thead>
+            <tbody id="ovFbBody"></tbody>
+          </table>
+          <p id="ovFbEmpty" class="hint" hidden data-i18n="fbEmpty">아직 피드백이 없습니다.</p>
         </div>
       </section>
 
-      <div class="dockwrap">
-        <div class="dock" id="dock">
-          <button type="button" class="btn ghost pin-now" id="btnPinNow" data-i18n="pinNow" hidden>핀 추가</button>
-          <!-- setup / recording -->
-          <div id="recPanel">
-            <div class="rec-state" id="recState" role="status"></div>
-            <div class="level" id="levelWrap" aria-hidden="true" hidden><span id="levelFill"></span></div>
-            <div class="clock-row">
-              <div>
-                <div class="clock-label" data-i18n="elapsed">경과</div>
-                <div id="elapsed" class="clock" aria-live="off">0:00</div>
+      <!-- Active week workspace -->
+      <div class="week-main" id="weekMain">
+        <div class="week-bar">
+          <span id="weekBadge" class="week-badge">1주차</span>
+          <input id="weekDate" class="date-input" type="date" aria-label="Date" data-i18n-aria="weekDateAria">
+          <input id="title" class="title-input" type="text" maxlength="60" data-i18n-ph="titlePh" aria-label="Title" data-i18n-aria="titlePh">
+          <button type="button" class="btn ghost small" id="btnDelWeek" data-i18n="delWeek">주차 삭제</button>
+        </div>
+
+        <div class="layout">
+          <section class="stage" aria-label="Pages">
+            <div id="empty" class="empty">
+              <label class="drop" id="drop" tabindex="0">
+                <input id="fileInput" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple hidden>
+                <strong data-i18n="dropTitle">도면을 놓으세요</strong>
+                <span data-i18n="dropSub">PDF(여러 쪽) · JPG · PNG</span>
+                <em class="privacy" data-i18n="privacy">파일과 녹음은 이 기기 밖으로 나가지 않습니다.</em>
+              </label>
+            </div>
+
+            <div id="viewer" class="viewer" hidden>
+              <div class="page-nav">
+                <button type="button" class="btn ghost icon" id="prevPage" aria-label="Previous page" data-i18n-aria="prevAria">‹</button>
+                <span id="pageLabel" class="page-label">1 / 1</span>
+                <button type="button" class="btn ghost icon" id="nextPage" aria-label="Next page" data-i18n-aria="nextAria">›</button>
+                <button type="button" class="btn ghost icon" id="zoomOut" aria-label="Zoom out" data-i18n-aria="zoomOut">−</button>
+                <span id="zoomLabel" class="zoom-label" aria-live="polite">100%</span>
+                <button type="button" class="btn ghost icon" id="zoomIn" aria-label="Zoom in" data-i18n-aria="zoomIn">+</button>
+                <button type="button" class="btn ghost small" id="btnCompare" aria-pressed="false" hidden data-i18n="comparePrev">지난주 보기</button>
+                <button type="button" class="btn ghost small" id="btnAddPages" data-i18n="addPages">쪽 추가</button>
+                <button type="button" class="btn ghost small" id="btnDelPage" data-i18n="delPage">쪽 삭제</button>
+                <input id="fileInput2" type="file" accept="application/pdf,image/png,image/jpeg,.pdf,.png,.jpg,.jpeg" multiple hidden>
+                <button type="button" class="btn ghost small" id="btnPinMode" aria-pressed="false" hidden data-i18n="pinMode">핀 추가</button>
               </div>
-              <div class="talk" id="talkBox">
-                <div class="clock-label" data-i18n="remaining">남은 발표</div>
-                <div id="talk" class="talk-time">-</div>
-                <div id="talkNote" class="talk-note"></div>
-              </div>
-            </div>
-            <div class="setup-row" id="setupRow">
-              <label for="presentMin" data-i18n="presentTime">발표 시간(분)</label>
-              <input id="presentMin" type="number" inputmode="numeric" min="0" max="180" value="10">
-              <span data-i18n="mins">분</span>
-            </div>
-            <div class="rec-buttons">
-              <button type="button" class="btn rec" id="btnRec" data-i18n="recStart">녹음 시작</button>
-              <button type="button" class="btn ghost big" id="btnPause" hidden data-i18n="pause">일시정지</button>
-              <button type="button" class="btn ghost big" id="btnStop" hidden data-i18n="recStop">끝내기</button>
-            </div>
-            <p class="hint" id="recHint" data-i18n="recHint">녹음 중에는 화면을 켜 두세요. 다른 앱이나 탭으로 가면 녹음이 끊길 수 있습니다. 도면을 탭하면 그 시각이 핀에 묶입니다.</p>
-          </div>
-          <!-- review -->
-          <div id="playPanel" hidden>
-            <div class="player">
-              <button type="button" class="btn rec round" id="btnPlay" aria-label="Play" data-i18n-aria="play">▶</button>
-              <div class="bar-col">
-                <div class="bar" id="bar" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-i18n-aria="seekAria">
-                  <div class="bar-fill" id="barFill"></div>
-                  <div class="bar-ticks" id="barTicks"></div>
+
+              <div id="cmpBar" class="cmp-bar" hidden>
+                <div class="seg" role="group" id="cmpModes">
+                  <button type="button" data-cmode="side" aria-pressed="true" data-i18n="cmpSide">나란히</button>
+                  <button type="button" data-cmode="overlay" aria-pressed="false" data-i18n="cmpOverlay">겹치기</button>
+                  <button type="button" data-cmode="split" aria-pressed="false" data-i18n="cmpSplit">가르기</button>
                 </div>
-                <div class="bar-time"><span id="curTime">0:00</span><span id="durTime">0:00</span></div>
+                <label id="cmpSliderWrap" class="cmp-slider" hidden>
+                  <span id="cmpSliderLbl">50%</span>
+                  <input id="cmpRange" type="range" min="0" max="100" value="50">
+                </label>
+                <span id="cmpPrevInfo" class="hint m0"></span>
+              </div>
+
+              <div class="canvas-wrap" id="canvasWrap">
+                <div id="cmpSideWrap" class="cmp-side" hidden>
+                  <div class="cmp-col">
+                    <div class="cmp-cap" id="cmpPrevCap"></div>
+                    <img id="cmpPrevImg" alt="" draggable="false">
+                    <div id="cmpNoPrevPage" class="hint" hidden data-i18n="cmpNoPage">지난주에는 이 쪽이 없습니다.</div>
+                  </div>
+                  <div class="cmp-col">
+                    <div class="cmp-cap" id="cmpCurCap"></div>
+                    <div class="page-box-slot" id="sideSlot"></div>
+                  </div>
+                </div>
+
+                <div class="page-box" id="pageBox">
+                  <img id="pageImg" alt="" draggable="false">
+                  <img id="cmpOverlayImg" class="cmp-overlay-img" alt="" draggable="false" hidden>
+                  <div id="cmpSplitLine" class="cmp-split-line" hidden></div>
+                  <div id="pinLayer" class="pin-layer"></div>
+                </div>
+              </div>
+              <div id="thumbs" class="thumbs" role="list"></div>
+            </div>
+          </section>
+
+          <div class="dockwrap">
+            <div class="dock" id="dock">
+              <button type="button" class="btn ghost pin-now" id="btnPinNow" data-i18n="pinNow" hidden>핀 추가</button>
+              <!-- setup / recording -->
+              <div id="recPanel">
+                <div class="rec-state" id="recState" role="status"></div>
+                <div class="level" id="levelWrap" aria-hidden="true" hidden><span id="levelFill"></span></div>
+                <div class="clock-row">
+                  <div>
+                    <div class="clock-label" data-i18n="elapsed">경과</div>
+                    <div id="elapsed" class="clock" aria-live="off">0:00</div>
+                  </div>
+                  <div class="talk" id="talkBox">
+                    <div class="clock-label" data-i18n="remaining">남은 발표</div>
+                    <div id="talk" class="talk-time">-</div>
+                    <div id="talkNote" class="talk-note"></div>
+                  </div>
+                </div>
+                <div class="setup-row" id="setupRow">
+                  <label for="presentMin" data-i18n="presentTime">발표 시간(분)</label>
+                  <input id="presentMin" type="number" inputmode="numeric" min="0" max="180" value="10">
+                  <span data-i18n="mins">분</span>
+                </div>
+                <div class="rec-buttons">
+                  <button type="button" class="btn rec" id="btnRec" data-i18n="recStart">녹음 시작</button>
+                  <button type="button" class="btn ghost" id="btnUploadAudio" data-i18n="uploadAudio">녹음 파일 올리기</button>
+                  <button type="button" class="btn ghost big" id="btnPause" hidden data-i18n="pause">일시정지</button>
+                  <button type="button" class="btn ghost big" id="btnStop" hidden data-i18n="recStop">끝내기</button>
+                </div>
+                <input id="audioFileInput" type="file" accept="audio/*,.m4a,.mp3,.wav,.ogg,.webm" hidden>
+                <p class="hint" id="recHint" data-i18n="recHint">녹음 중에는 화면을 켜 두세요. 다른 앱이나 탭으로 가면 녹음이 끊길 수 있습니다. 도면을 탭하면 그 시각이 핀에 묶입니다.</p>
+              </div>
+              <!-- review -->
+              <div id="playPanel" hidden>
+                <div class="player">
+                  <button type="button" class="btn rec round" id="btnPlay" aria-label="Play" data-i18n-aria="play">▶</button>
+                  <div class="bar-col">
+                    <div class="bar" id="bar" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" data-i18n-aria="seekAria">
+                      <div class="bar-fill" id="barFill"></div>
+                      <div class="bar-ticks" id="barTicks"></div>
+                    </div>
+                    <div class="bar-time"><span id="curTime">0:00</span><span id="durTime">0:00</span></div>
+                  </div>
+                </div>
+                <div class="rec-buttons">
+                  <button type="button" class="btn" id="btnAutoTrDock" data-i18n="autoTrBtn">녹음 전사하기</button>
+                  <button type="button" class="btn ghost" id="btnRerecord" data-i18n="rerecord">다시 녹음</button>
+                </div>
               </div>
             </div>
-            <div class="rec-buttons">
-              <button type="button" class="btn ghost" id="btnRerecord" data-i18n="rerecord">다시 녹음</button>
-            </div>
           </div>
-        </div>
 
-      </div>
-      <section class="pinsec" aria-label="Pins">
-        <div class="pins-head">
-          <h2 data-i18n="pinsTitle">핀 메모</h2>
-          <button type="button" class="btn ghost small" id="btnStarOnly" aria-pressed="false" data-i18n="starOnly">★만</button>
+          <section class="sidepanel" aria-label="Notes">
+            <div class="side-tabs" role="tablist">
+              <button type="button" role="tab" data-tab="pins" aria-selected="true" id="tabPins"><span data-i18n="pinsTitle">핀 메모</span> <em id="cntPins" class="tab-cnt"></em></button>
+              <button type="button" role="tab" data-tab="transcript" aria-selected="false" id="tabTranscript"><span data-i18n="trTitle">전사</span> <em id="cntTr" class="tab-cnt"></em></button>
+              <button type="button" role="tab" data-tab="feedback" aria-selected="false" id="tabFeedback"><span data-i18n="fbTitle">피드백</span> <em id="cntFb" class="tab-cnt"></em></button>
+            </div>
+
+            <!-- Tab 1: Pins -->
+            <div id="panePins" class="tab-pane">
+              <div class="pins-head">
+                <h2 class="sr-only" data-i18n="pinsTitle">핀 메모</h2>
+                <button type="button" class="btn ghost small" id="btnStarOnly" aria-pressed="false" data-i18n="starOnly">★만</button>
+              </div>
+              <ol id="pinList" class="pin-list"></ol>
+              <p id="pinEmpty" class="hint" data-i18n="pinEmpty">아직 핀이 없습니다. 녹음 중 도면을 탭하세요.</p>
+            </div>
+
+            <!-- Tab 2: Transcript -->
+            <div id="paneTranscript" class="tab-pane" hidden>
+              <div class="pane-head">
+                <button type="button" class="btn small" id="btnUploadTr" data-i18n="trUpload">전사 올리기</button>
+                <button type="button" class="btn ghost small" id="btnAutoTr" data-i18n="autoTrBtn">녹음 전사하기</button>
+                <button type="button" class="btn ghost small" id="btnSelToFb" hidden data-i18n="selToFb">선택 → 피드백</button>
+                <button type="button" class="btn ghost small" id="btnClearTr" hidden data-i18n="trClear">지우기</button>
+              </div>
+              <p id="trMeta" class="hint" hidden></p>
+              <ol id="trList" class="tr-list"></ol>
+              <p id="trEmpty" class="hint" data-i18n="trEmpty">전사 텍스트를 붙여 넣거나 PDF·TXT·DOCX 파일을 올리면 녹음·핀과 연결됩니다.</p>
+            </div>
+
+            <!-- Tab 3: Feedback -->
+            <div id="paneFeedback" class="tab-pane" hidden>
+              <form id="fbForm" class="fb-add">
+                <input id="fbInput" type="text" maxlength="2000" data-i18n-ph="fbAddPh" aria-label="Feedback" data-i18n-aria="fbAddPh">
+                <button type="submit" class="btn small" data-i18n="add">추가</button>
+              </form>
+              <div id="fbCarriedWrap" hidden>
+                <h3 class="fb-subhead" data-i18n="fbPrevHead">지난주 피드백</h3>
+                <ul id="fbCarriedList" class="fb-list"></ul>
+              </div>
+              <h3 class="fb-subhead" id="fbOwnHead" hidden data-i18n="fbOwnHead">이번 주 피드백</h3>
+              <ul id="fbOwnList" class="fb-list"></ul>
+              <p id="fbEmpty" class="hint" data-i18n="fbEmpty">아직 피드백이 없습니다.</p>
+            </div>
+          </section>
         </div>
-        <ol id="pinList" class="pin-list"></ol>
-        <p id="pinEmpty" class="hint" data-i18n="pinEmpty">아직 핀이 없습니다. 녹음 중 도면을 탭하세요.</p>
-      </section>
+      </div>
     </div>
   </main>
 
-  <dialog id="dlgSessions">
+  <dialog id="dlgTranscript">
+    <form method="dialog" class="dlg dlg-wide">
+      <h2 data-i18n="trUpload">전사 올리기</h2>
+      <p class="hint mt0" data-i18n="trDlgHint">ALT 전사 텍스트를 붙여 넣거나 PDF·TXT·MD·SRT·VTT·DOCX 파일을 선택하세요.</p>
+      <div class="tr-file-row">
+        <button type="button" class="btn ghost small" id="btnTrFile" data-i18n="trPickFile">파일 선택</button>
+        <input id="trFileInput" type="file" accept=".pdf,.txt,.md,.srt,.vtt,.docx,application/pdf,text/plain" hidden>
+        <span id="trFileName" class="hint m0"></span>
+      </div>
+      <textarea id="trPaste" class="tr-paste" rows="8" data-i18n-ph="trPastePh"></textarea>
+      <label class="chk-row">
+        <input id="trNoTimes" type="checkbox">
+        <span data-i18n="trNoTimes">시각 없음으로 올리기</span>
+      </label>
+      <div id="trPreviewBox" class="tr-preview" hidden>
+        <div class="tr-prev-head" id="trPrevSummary"></div>
+        <ol id="trPrevRows" class="tr-prev-rows"></ol>
+      </div>
+      <p id="trDlgStatus" class="hint warn" role="status"></p>
+      <div class="dlg-actions wrap">
+        <button class="btn ghost" value="cancel" data-i18n="cancel">취소</button>
+        <button type="button" class="btn" id="btnTrApply" disabled data-i18n="trApply">붙여 넣고 정리</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgAutoTr">
     <form method="dialog" class="dlg">
-      <h2 data-i18n="sessions">세션</h2>
-      <p id="storeOff" class="hint warn" hidden data-i18n="storeOff">저장이 꺼져 있습니다. 이 화면을 닫으면 세션이 사라지니 .crit 파일로 저장하세요.</p>
-      <ul id="sessionList" class="sess-list"></ul>
-      <p id="sessEmpty" class="hint" data-i18n="sessEmpty">저장된 세션이 없습니다.</p>
-      <div class="dlg-actions"><button class="btn" value="close" data-i18n="close">닫기</button></div>
+      <h2 data-i18n="autoTrTitle">녹음 자동 전사</h2>
+      <p id="autoTrNoAudio" class="hint warn" hidden data-i18n="autoTrNoAudio">먼저 녹음을 하거나 녹음 파일(m4a·mp3·wav)을 올려 주세요.</p>
+      <div id="autoTrBody">
+        <div class="engine-box">
+          <label class="engine-opt" id="engGeminiOpt" hidden>
+            <input type="radio" name="trEngine" value="gemini" id="engGemini">
+            <div>
+              <strong data-i18n="engGeminiTitle">Gemini 고정확도 전사 (소유자 계정)</strong>
+              <span class="hint m0" data-i18n="engGeminiSub">화자 구분 · 건축 용어 보정 · 피드백 자동 추출. 전사 시 오디오가 Google Gemini로 전송됩니다.</span>
+            </div>
+          </label>
+          <label class="engine-opt">
+            <input type="radio" name="trEngine" value="local" id="engLocal" checked>
+            <div>
+              <strong data-i18n="engLocalTitle">기본 모델 — 기기 안 로컬 Whisper</strong>
+              <span class="hint m0" data-i18n="engLocalSub">무료 · 음성이 기기 밖으로 나가지 않음. 첫 1회 모델 내려받기(약 150 MB)가 필요합니다.</span>
+            </div>
+          </label>
+        </div>
+        <div class="cloud-row">
+          <label for="autoTrLang" data-i18n="autoTrLangLbl">음성 언어</label>
+          <select id="autoTrLang">
+            <option value="auto" data-i18n="langAuto">자동 감지 (한국어·프랑스어)</option>
+            <option value="ko" data-i18n="langKo">한국어</option>
+            <option value="fr" data-i18n="langFr">프랑스어</option>
+          </select>
+        </div>
+        <label class="chk-row" id="autoTrFbRow" hidden>
+          <input id="autoTrExtractFb" type="checkbox" checked>
+          <span data-i18n="autoTrExtractFb">핵심 피드백 항목도 함께 추출</span>
+        </label>
+        <div id="autoTrProgWrap" class="meter-wrap" hidden>
+          <div class="meter"><span id="autoTrMeter"></span></div>
+          <p id="autoTrStatus" class="hint m0" role="status"></p>
+        </div>
+      </div>
+      <div class="dlg-actions wrap">
+        <button class="btn ghost" value="close" id="btnAutoTrClose" data-i18n="close">닫기</button>
+        <button type="button" class="btn" id="btnAutoTrStart" data-i18n="autoTrStart">전사 시작</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgCloud">
+    <form method="dialog" class="dlg">
+      <h2 data-i18n="cloudTitle">Google Drive 동기화</h2>
+      <p id="cloudStatus" class="hint mt0"></p>
+      <div id="cloudSignedOut">
+        <button type="button" class="btn" id="btnGoogleSignIn" data-i18n="cloudSignIn">Google 로그인</button>
+      </div>
+      <div id="cloudSignedIn" hidden>
+        <div class="cloud-row">
+          <label for="cloudProjSel" data-i18n="cloudProjLabel">Drive 프로젝트</label>
+          <select id="cloudProjSel"></select>
+        </div>
+        <div class="exp-grid mt10">
+          <button type="button" class="btn" id="btnCloudSync" data-i18n="cloudSyncNow">지금 동기화</button>
+          <button type="button" class="btn ghost" id="btnCloudSignOut" data-i18n="cloudSignOut">로그아웃</button>
+        </div>
+      </div>
+      <div class="dlg-actions"><button class="btn ghost" value="close" data-i18n="close">닫기</button></div>
     </form>
   </dialog>
 
@@ -161,9 +369,13 @@
     <form method="dialog" class="dlg">
       <h2 data-i18n="export">내보내기</h2>
       <div class="exp-grid">
-        <button type="button" class="btn" id="expPdf" data-i18n="expPdf">요약 PDF</button>
-        <button type="button" class="btn" id="expPng" data-i18n="expPng">요약 PNG</button>
-        <button type="button" class="btn" id="expCrit" data-i18n="expCrit">.crit 세션 파일</button>
+        <button type="button" class="btn" id="expPdf" data-i18n="expPdf">요약 PDF (이번 주)</button>
+        <button type="button" class="btn" id="expPng" data-i18n="expPng">요약 PNG (이번 주)</button>
+        <button type="button" class="btn" id="expCrit" data-i18n="expCrit">.crit 파일 (이번 주)</button>
+        <hr class="exp-sep">
+        <button type="button" class="btn ghost" id="expSemPdf" data-i18n="expSemPdf">학기 정리 PDF (전체 주차)</button>
+        <button type="button" class="btn ghost" id="expMd" data-i18n="expMd">Markdown 정리 (전사·피드백)</button>
+        <button type="button" class="btn ghost" id="expProjCrit" data-i18n="expProjCrit">프로젝트 전체 .crit 묶음</button>
       </div>
       <p id="expStatus" class="hint" role="status"></p>
       <div class="dlg-actions"><button class="btn ghost" value="close" data-i18n="close">닫기</button></div>
