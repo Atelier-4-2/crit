@@ -1982,7 +1982,7 @@
       cloudMod = m;
       cloud = m.createCloud({ googleClientId: GOOGLE_CLIENT_ID, rootFolderName: "Atelier 4·2 Share" });
       return cloud.restore().then(function (ok) {
-        if (ok) { cloudUser = cloud.session(); renderCloudBtn(); checkOwnerStatus(); }
+        if (ok) { cloudUser = cloud.user || { emailAddress: "Google Drive" }; renderCloudBtn(); checkOwnerStatus(); }
       });
     }).catch(function () {});
   }
@@ -2223,7 +2223,7 @@
     $("btnCloud").addEventListener("click", function () { if (!recActive()) openCloudDialog(); });
     $("btnGoogleSignIn").addEventListener("click", function () {
       if (!cloud) { $("cloudStatus").textContent = t("libFail"); return; }
-      cloud.signIn("google").then(function () { cloudUser = cloud.session(); renderCloudBtn(); return checkOwnerStatus(); }).then(function () { openCloudDialog(); })
+      cloud.signIn("google").then(function () { cloudUser = cloud.user || { emailAddress: "Google Drive" }; renderCloudBtn(); return checkOwnerStatus(); }).then(function () { openCloudDialog(); })
         .catch(function (e) { $("cloudStatus").textContent = t("cloudErr", { e: e.message || e }); });
     });
     $("btnCloudSync").addEventListener("click", syncWithDrive);
